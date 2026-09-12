@@ -1,0 +1,19 @@
+# build outputs
+build/
+build_test.jar
+*.pyc
+__pycache__/
+installer/
+tracker-improved.jar
+
+# IDE
+.classpath
+.project
+.settings/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# logs
+*.log
