@@ -47,15 +47,35 @@ import org.opensourcephysics.tools.UserFunction;
  *   v(t) = v_term * (1 - exp(-t / tau))
  * </pre>
  * <p>
- * Each function uses Tracker's usual four fit parameters (a, b, c, d) so it
- * behaves exactly like the built-in fits:
+ * <b>Why the parameters are not a, b, c, d.</b> These fits were originally
+ * written in the same generic four-parameter form as the built-in fits,
+ * <pre>
+ *   y = a + b*tanh(c*x + d)
+ * </pre>
+ * That form is <i>degenerate</i> on v-t data measured in seconds: the whole
+ * data set spans the tanh argument 0..~1.5, where tanh is nearly linear, so
+ * <ol>
+ * <li>the drawn curve looks like a straight line, and</li>
+ * <li>a and b are not separately identified. Fitting real v-t data converges to
+ * a ~ -2175 and b ~ +2176 with a completely different initial guess reaching
+ * a ~ -2239, b ~ +2240, all with the same RMS to five decimals. The number a
+ * student would read off as the terminal velocity is therefore meaningless.</li>
+ * </ol>
+ * Using the physical parameterisation instead,
+ * <pre>
+ *   y = A*tanh((x - t0)/tau)
+ * </pre>
+ * removes the degeneracy: every initial guess converges to the same A, tau and
+ * t0, the fitted values are the quantities the experiment is measuring, and
  * <ul>
- * <li><b>Tanh (terminal velocity)</b>: y = a + b*tanh(c*x + d), where b is the
- * terminal velocity, c = g/v_term for quadratic drag from rest, and d is a time
- * shift for data that does not start at x = 0</li>
- * <li><b>Exp saturation (drag)</b>: y = a + b*(1 - exp(-c*x + d)), where the
- * asymptote a + b is the terminal velocity and c = 1/tau for linear drag</li>
+ * <li><b>Tanh (terminal velocity)</b>: A = v_term (m/s), tau = v_term/g (s), so
+ * g = A/tau, and t0 is the release time (s)</li>
+ * <li><b>Exp saturation (drag)</b>: A = v_term, tau = m/k, t0 the release time</li>
  * </ul>
+ * Tracker's default initial guesses suit data in SI units, which is what the
+ * data tool exports, so A~1, tau~0.2, t0~0 converge whether the plotted
+ * quantity is velocity or position.
+ * <p>
  * The functions are added to the curve fitter's list of built-in fits at
  * startup, so they appear in the fit dropdown for every track. Parameter names,
  * initial guesses and fixed values are edited with the standard fit controls,
@@ -74,11 +94,22 @@ public final class TrackerFits {
 	/** the independent variable used by Tracker fits */
 	private static final String VAR = "x"; //$NON-NLS-1$
 
-	/** fit parameter names, matching the convention of Tracker's built-in fits */
-	private static final String[] PARAM_NAMES = { "a", "b", "c", "d" }; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+	/** physical parameter names: asymptote, time constant, release time */
+	private static final String[] PARAM_NAMES = { "A", "tau", "t0" }; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 
-	/** initial parameter guesses: offset 0, amplitude 1, rate 1, shift 0 */
-	private static final double[] PARAM_VALUES = { 0, 1, 1, 0 };
+	/** human-readable parameter descriptions shown by the fit controls */
+	private static final String[] PARAM_DESCRIPTIONS = {
+			"Terminal velocity (m/s)", //$NON-NLS-1$
+			"Time constant (s): v_t/g for quadratic drag, m/k for linear drag", //$NON-NLS-1$
+			"Release time (s): the time at which the motion starts" }; //$NON-NLS-1$
+
+	/**
+	 * Initial guesses in SI units. A ~ 1 m/s and tau ~ 0.2 s match a light object
+	 * reaching terminal velocity in a fraction of a second, and t0 ~ 0 assumes the
+	 * data starts at the release. Crucially these are well inside the basin of the
+	 * correct solution, unlike the generic form's defaults.
+	 */
+	private static final double[] PARAM_VALUES = { 1, 0.2, 0 };
 
 	private static boolean registered;
 
@@ -104,10 +135,12 @@ public final class TrackerFits {
 			if (fits == null) {
 				return;
 			}
-			addFit(fits, TANH_NAME, "a + b*tanh(c*" + VAR + " + d)", //$NON-NLS-1$ //$NON-NLS-2$
-					"Terminal velocity (quadratic drag): a + b*tanh(c*x + d)"); //$NON-NLS-1$
-			addFit(fits, EXP_NAME, "a + b*(1 - exp(-c*" + VAR + " + d))", //$NON-NLS-1$ //$NON-NLS-2$
-					"Terminal velocity (linear drag): a + b*(1 - exp(-c*x + d))"); //$NON-NLS-1$
+			addFit(fits, TANH_NAME, "A*tanh((" + VAR + " - t0)/tau)", //$NON-NLS-1$ //$NON-NLS-2$
+					"Quadratic drag, v(t) = v_t*tanh((t - t0)/tau). " //$NON-NLS-1$
+							+ "A is the terminal velocity, tau = v_t/g so g = A/tau."); //$NON-NLS-1$
+			addFit(fits, EXP_NAME, "A*(1 - exp(-(" + VAR + " - t0)/tau))", //$NON-NLS-1$ //$NON-NLS-2$
+					"Linear (Stokes) drag, v(t) = v_t*(1 - exp(-(t - t0)/tau)). " //$NON-NLS-1$
+							+ "A is the terminal velocity, tau = m/k."); //$NON-NLS-1$
 			registered = true;
 		} catch (Throwable t) {
 			// the extra fits are a convenience and must never break startup, but the
@@ -157,10 +190,21 @@ public final class TrackerFits {
 			}
 		}
 		UserFunction fit = new UserFunction(name);
+		// ORDER MATTERS, and getting it wrong is silent. setParameters must come
+		// FIRST: it registers the parameter names (and their descriptions) with the
+		// function, and setExpression then substitutes those names and compiles the
+		// expression. Called the other way round, setExpression returns false
+		// WITHOUT throwing, the expression never compiles, and evaluate() returns
+		// 0 for every x. A fit drawn from that is a flat line at zero - and when a
+		// fitter is handed such a function it appears to produce a straight line.
+		UserFunction params = fit;
 		double[] values = new double[PARAM_NAMES.length];
 		System.arraycopy(PARAM_VALUES, 0, values, 0, values.length);
-		fit.setParameters(PARAM_NAMES, values);
-		fit.setExpression(expression, new String[] { VAR });
+		params.setParameters(PARAM_NAMES, values, PARAM_DESCRIPTIONS);
+		if (!fit.setExpression(expression, new String[] { VAR })) {
+			OSPLog.warning("the fit expression would not compile: " + expression); //$NON-NLS-1$
+			return;
+		}
 		if (description != null) {
 			try {
 				fit.setDescription(description);

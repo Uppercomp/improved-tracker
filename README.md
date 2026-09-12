@@ -53,15 +53,22 @@ classpath, no `Xuggle/` folder, no extra downloads.
 | **Theme lost its tuning after a restart** | `applyModernLookAndFeel` restored a saved theme without applying the FlatLaf cosmetic tweaks that a runtime switch applies, so the same theme looked different after a restart. Now applied. |
 | **Failed theme switch recorded as success** | `setTheme` ignored the `false` returned by `OSPRuntime.setLookAndFeel` (which rolls back on failure) and still saved the choice. It now reports failure instead. |
 | **Fit registration could report false success** | `TrackerFits.register()` set its `registered` flag *before* adding the fits and swallowed failures silently, so a partial failure left the fits missing while claiming success. The flag is now set last, the method is synchronized (it runs from both the startup thread and the EDT and mutates a shared static list), and failures are logged. |
+| **The drag fits drew a flat / straight line** | `UserFunction.setExpression` was being called *before* `setParameters`. That order makes the expression never compile — `setExpression` returns **false** without throwing — so `evaluate()` returned 0 for every x. The fit therefore drew a flat line at zero, and a fitter handed such a function appears to produce a straight line. `setParameters` must come first: it registers the parameter names, and `setExpression` then substitutes them and compiles. The failure is now also checked and logged. |
+| **The tanh fit's parameters were degenerate** | The original fit was `a + b·tanh(c·x + d)`, the generic four-parameter form. On v–t data in seconds the whole set spans the tanh argument 0…~1.5, where tanh is nearly linear, so (a) the curve looks like a straight line and (b) **a and b are not separately identified**: fitting real data converges to a ≈ −2175, b ≈ +2176 from one start and a ≈ −2239, b ≈ +2240 from another, both with RMS 0.06706. The value a student would read as the terminal velocity is meaningless. Replaced with the physical form `A·tanh((x − t0)/tau)`, which converges to the same answer from every starting guess. |
+
 | **Export hardening** | Try-with-resources on writes, failures surfaced to the user instead of only the console, success verified by existence *and* non-zero length. |
 
 
 ### New features
 
 - **Drag / terminal-velocity fit functions** (`TrackerFits`) in the curve
-  fitter's built-in list, using Tracker's usual `a, b, c, d` parameters:
-  - `y = a + b·tanh(c·x + d)` — quadratic drag, `v(t) = v_t·tanh(g t / v_t)`
-  - `y = a + b·(1 − exp(−c·x + d))` — linear (Stokes) drag
+  fitter's built-in list. Both use the physical parameterisation so the fitted
+  numbers are the quantities being measured:
+  - `A*tanh((x - t0)/tau)` — quadratic drag; **A is the terminal velocity** in
+    m/s, `tau = v_t/g` in s, so **g = A/tau**, and `t0` is the release time.
+    Reached by `v(t) = v_t·tanh(g·t / v_t)`.
+  - `A*(1 - exp(-(x - t0)/tau))` — linear (Stokes) drag; A is the terminal
+    velocity and `tau = m/k`.
 - **`View → Theme`** submenu switching look & feel at runtime, remembered in
   the preferences. FlatLaf (Light/Dark/IntelliJ), Nimbus, Classic, and on macOS
   the native Aqua.
