@@ -512,8 +512,15 @@ public class ExportDataDialog extends JDialog {
 		}
 		// get export string and write to output file
 		String output = asPython? getPythonString(): getDataString();
-		if (output == null)
+		if (output == null) {
+			// Never fail silently: returning with no feedback looked like the export
+			// "did nothing", leaving the user to restart Tracker.
+			JOptionPane.showMessageDialog(frame,
+					TrackerRes.getString("ExportDataDialog.Dialog.NoData.Message"), //$NON-NLS-1$
+					TrackerRes.getString("ExportDataDialog.Dialog.NoData.Title"), //$NON-NLS-1$
+					JOptionPane.WARNING_MESSAGE);
 			return;
+		}
 		String savedPath = write(file, output);
 		if (savedPath != null)
 			lastSaved = file;
@@ -1178,7 +1185,15 @@ public class ExportDataDialog extends JDialog {
 		tracksButton.setText(s);
 		s = "";
 		for (int k = selectedTracksBS.nextSetBit(0); k >= 0; k = selectedTracksBS.nextSetBit(k + 1)) {
-			s += TTrack.getTrack(k).getName() + ", "; //$NON-NLS-1$
+			// the selection is a BitSet of track IDs and is not pruned when a track
+			// is deleted while this dialog is open, so getTrack can return null.
+			// Dereferencing it here threw out of refreshGUI(), which left the dialog
+			// half-built and the export doing nothing until Tracker was restarted.
+			TTrack next = TTrack.getTrack(k);
+			if (next == null) {
+				continue;
+			}
+			s += next.getName() + ", "; //$NON-NLS-1$
 		}
 		// stop the track list at 300 in extreme cases
 		int end = Math.min(s.length() - 2, 300);

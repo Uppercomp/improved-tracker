@@ -85,11 +85,25 @@ import org.opensourcephysics.tools.UserFunction;
  */
 public final class TrackerFits {
 
-	/** name of the hyperbolic tangent terminal-velocity fit */
-	public static final String TANH_NAME = "Tanh (terminal velocity)"; //$NON-NLS-1$
+	/**
+	 * name of the hyperbolic tangent terminal-velocity fit. The trailing formula is
+	 * deliberate: it tells the user how to get g from the two fitted parameters,
+	 * which is the quantity they are usually after.
+	 */
+	public static final String TANH_NAME = "Tanh (terminal velocity: g = A/tau)"; //$NON-NLS-1$
 
 	/** name of the exponential saturation drag fit */
 	public static final String EXP_NAME = "Exp saturation (drag)"; //$NON-NLS-1$
+
+	/**
+	 * name of the direct linear-drag fit, v = g/k + (v0 - g/k)*exp(-k*t).
+	 * <p>
+	 * This is the same physics as the exponential saturation fit but written in
+	 * the form a physics course actually derives from dv/dt = g - k*v, so the
+	 * fitted parameters are g and k directly rather than an asymptote and a time
+	 * constant.
+	 */
+	public static final String LINEAR_DRAG_NAME = "Linear drag (fits g and k directly)"; //$NON-NLS-1$
 
 	/** the independent variable used by Tracker fits */
 	private static final String VAR = "x"; //$NON-NLS-1$
@@ -110,6 +124,18 @@ public final class TrackerFits {
 	 * correct solution, unlike the generic form's defaults.
 	 */
 	private static final double[] PARAM_VALUES = { 1, 0.2, 0 };
+
+	/** linear-drag parameter names: gravity, drag coefficient, initial speed, release time */
+	private static final String[] LINEAR_NAMES = { "g", "k", "v0", "t0" }; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+
+	private static final String[] LINEAR_DESCRIPTIONS = {
+			"Acceleration due to gravity (m/s^2)", //$NON-NLS-1$
+			"Drag coefficient per unit mass (1/s): dv/dt = g - k*v", //$NON-NLS-1$
+			"Initial velocity at t = t0 (m/s)", //$NON-NLS-1$
+			"Release time (s)" }; //$NON-NLS-1$
+
+	/** initial guesses: g ~ 9.8 m/s^2, k ~ 3 /s, v0 = 0, t0 = 0 */
+	private static final double[] LINEAR_VALUES = { 9.8, 3, 0, 0 };
 
 	private static boolean registered;
 
@@ -141,6 +167,15 @@ public final class TrackerFits {
 			addFit(fits, EXP_NAME, "A*(1 - exp(-(" + VAR + " - t0)/tau))", //$NON-NLS-1$ //$NON-NLS-2$
 					"Linear (Stokes) drag, v(t) = v_t*(1 - exp(-(t - t0)/tau)). " //$NON-NLS-1$
 							+ "A is the terminal velocity, tau = m/k."); //$NON-NLS-1$
+			// The same linear-drag physics, but written the way it is derived from
+			// dv/dt = g - k*v, so the fit reports g and k directly. Suits slower
+			// motion where the drag is proportional to speed rather than speed
+			// squared.
+			addFit(fits, LINEAR_DRAG_NAME,
+					"g/k + (v0 - g/k)*exp(-k*(" + VAR + " - t0))", //$NON-NLS-1$ //$NON-NLS-2$
+					"Linear drag from dv/dt = g - k*v: v = g/k + (v0 - g/k)exp(-k(t - t0)). " //$NON-NLS-1$
+							+ "Fits g and k directly; terminal velocity is g/k.", //$NON-NLS-1$
+					LINEAR_NAMES, LINEAR_VALUES, LINEAR_DESCRIPTIONS);
 			registered = true;
 		} catch (Throwable t) {
 			// the extra fits are a convenience and must never break startup, but the
@@ -162,7 +197,8 @@ public final class TrackerFits {
 		ArrayList<String> names = new ArrayList<>();
 		for (KnownFunction f : fits) {
 			String name = f.getName();
-			if (TANH_NAME.equals(name) || EXP_NAME.equals(name)) {
+			if (TANH_NAME.equals(name) || EXP_NAME.equals(name)
+					|| LINEAR_DRAG_NAME.equals(name)) {
 				names.add(name);
 			}
 		}
@@ -184,6 +220,24 @@ public final class TrackerFits {
 	 */
 	private static void addFit(ArrayList<KnownFunction> fits, String name, String expression,
 			String description) {
+		addFit(fits, name, expression, description, PARAM_NAMES, PARAM_VALUES, PARAM_DESCRIPTIONS);
+	}
+
+	/**
+	 * Adds one fit function to the list if it is not already there, with the given
+	 * parameter set.
+	 *
+	 * @param fits         the curve fitter's built-in fit list
+	 * @param name         the fit name shown in the dropdown
+	 * @param expression   the fit expression in terms of x
+	 * @param description  a short description of the model, may be null
+	 * @param paramNames   the parameter names
+	 * @param paramValues  the initial guesses, in SI units
+	 * @param paramDescs   the parameter descriptions, may be null
+	 */
+	private static void addFit(ArrayList<KnownFunction> fits, String name, String expression,
+			String description, String[] paramNames, double[] paramValues,
+			String[] paramDescs) {
 		for (KnownFunction f : fits) {
 			if (name.equals(f.getName())) {
 				return; // already present
@@ -197,10 +251,9 @@ public final class TrackerFits {
 		// WITHOUT throwing, the expression never compiles, and evaluate() returns
 		// 0 for every x. A fit drawn from that is a flat line at zero - and when a
 		// fitter is handed such a function it appears to produce a straight line.
-		UserFunction params = fit;
-		double[] values = new double[PARAM_NAMES.length];
-		System.arraycopy(PARAM_VALUES, 0, values, 0, values.length);
-		params.setParameters(PARAM_NAMES, values, PARAM_DESCRIPTIONS);
+		double[] values = new double[paramValues.length];
+		System.arraycopy(paramValues, 0, values, 0, values.length);
+		fit.setParameters(paramNames, values, paramDescs);
 		if (!fit.setExpression(expression, new String[] { VAR })) {
 			OSPLog.warning("the fit expression would not compile: " + expression); //$NON-NLS-1$
 			return;

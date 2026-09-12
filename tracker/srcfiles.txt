@@ -142,6 +142,7 @@ src/org/opensourcephysics/cabrillo/tracker/WorldGrid.java
 src/org/opensourcephysics/cabrillo/tracker/WorldRuler.java
 src/org/opensourcephysics/cabrillo/tracker/WorldTView.java
 src/org/opensourcephysics/cabrillo/tracker/ZoomTView.java
+src/org/opensourcephysics/media/core/VideoClipControl.java
 src/org/opensourcephysics/media/xuggle/DiagnosticsForXuggle.java
 src/org/opensourcephysics/media/xuggle/XuggleMovieVideoType.java
 src/org/opensourcephysics/media/xuggle/XuggleRes.java
