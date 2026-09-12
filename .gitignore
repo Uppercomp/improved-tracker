@@ -1,10 +1,15 @@
 # build outputs
 build/
 build_test.jar
+verify.jar
 *.pyc
 __pycache__/
 installer/
-tracker-improved.jar
+
+# the jar produced at the repo root by build.py; dist/tracker-improved.jar is
+# committed on purpose (it doubles as the incremental build base), so this is
+# anchored to the root and does not exclude it
+/tracker-improved.jar
 
 # IDE
 .classpath
