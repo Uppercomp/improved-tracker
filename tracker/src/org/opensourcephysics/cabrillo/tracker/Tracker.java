@@ -910,13 +910,14 @@ public class Tracker {
 	private static void applyModernLookAndFeel() {
 		// Honor an explicit user choice first.
 		if (lookAndFeel != null && !lookAndFeel.isEmpty()) {
-			if (isNativeLookAndFeel(lookAndFeel) && OSPRuntime.isMac()) {
-				// the native macOS look & feel must be installed through OSP so the
-				// screen menu bar and other Apple integration stays wired up
-				OSPRuntime.setLookAndFeel(true, lookAndFeel);
-				return;
+			// the native macOS look & feel is installed through OSP so the screen
+			// menu bar and other Apple integration stays wired up
+			boolean ok = OSPRuntime.setLookAndFeel(true, lookAndFeel);
+			// apply the same cosmetic tweaks a runtime theme switch applies, so a
+			// theme chosen in View|Theme looks the same after a restart
+			if (ok && lookAndFeel.startsWith("com.formdev.flatlaf")) { //$NON-NLS-1$
+				applyFlatLafTweaks();
 			}
-			OSPRuntime.setLookAndFeel(true, lookAndFeel);
 			return;
 		}
 		// On macOS keep the native look & feel by default. Forcing FlatLaf there
@@ -1034,7 +1035,16 @@ public class Tracker {
 		list.add(new String[] { "com.formdev.flatlaf.FlatIntelliJLaf", "IntelliJ" }); //$NON-NLS-1$ //$NON-NLS-2$
 		list.add(new String[] { "javax.swing.plaf.nimbus.NimbusLookAndFeel", "Nimbus" }); //$NON-NLS-1$ //$NON-NLS-2$
 		list.add(new String[] { "javax.swing.plaf.metal.MetalLookAndFeel", "Classic" }); //$NON-NLS-1$ //$NON-NLS-2$
-		return list.toArray(new String[0][]);
+		// Drop any theme whose class is not present, otherwise the menu offers
+		// entries that silently do nothing when chosen (for example when FlatLaf
+		// is not on the classpath in an IDE build).
+		java.util.ArrayList<String[]> available = new java.util.ArrayList<>();
+		for (String[] theme : list) {
+			if (findAvailableLookAndFeel(theme[0]) != null) {
+				available.add(theme);
+			}
+		}
+		return available.toArray(new String[0][]);
 	}
 
 	/**
@@ -1098,8 +1108,13 @@ public class Tracker {
 		try {
 			if (isNativeLookAndFeel(className)) {
 				// install the native macOS look & feel through OSP so Apple
-				// integration (screen menu bar, open-file events) is re-established
-				OSPRuntime.setLookAndFeel(true, className);
+				// integration (screen menu bar, open-file events) is re-established.
+				// OSP rolls back and returns false if the install fails, in which
+				// case the choice must not be recorded as if it had succeeded.
+				if (!OSPRuntime.setLookAndFeel(true, className)) {
+					OSPLog.warning("unable to set look & feel " + className); //$NON-NLS-1$
+					return false;
+				}
 			} else {
 				Class.forName(className);
 				UIManager.setLookAndFeel(className);

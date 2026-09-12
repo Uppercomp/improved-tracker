@@ -818,16 +818,22 @@ public class ExportDataDialog extends JDialog {
 		BitSet selectedTracksBS = getSelectedTracksBitSet(panelID);
 		if (selectedTracksBS.isEmpty())
 			return null;
-		TTrack[] selectedTracks = new TTrack[selectedTracksBS.cardinality()];
-		int n = 0;
+		// the selection is a BitSet of track IDs and is not pruned when a track is
+		// deleted while this dialog is open, so getTrack(k) can return null
+		ArrayList<TTrack> trackList = new ArrayList<TTrack>();
 		for (int k = selectedTracksBS.nextSetBit(0); k >= 0; k = selectedTracksBS.nextSetBit(k + 1)) {
-			selectedTracks[n++] = TTrack.getTrack(k);
+			TTrack t = TTrack.getTrack(k);
+			if (t != null)
+				trackList.add(t);
 		}
+		TTrack[] selectedTracks = trackList.toArray(new TTrack[0]);
+		if (selectedTracks.length == 0)
+			return null;
 		ArrayList<String> allColumnNames = allColumnsMap.get(trackType);
 		int datasetCount = allColumnNames.size();
 		BitSet namesBS = getSelectedColumnsBitSet(trackType);
 		String[] selectedColumnNames = new String[namesBS.cardinality()];
-		n = 0;
+		int n = 0;
 		for (int k = namesBS.nextSetBit(0); k >= 0; k = namesBS.nextSetBit(k + 1)) {
 			selectedColumnNames[n++] = allColumnNames.get(k);
 		}
@@ -1018,7 +1024,10 @@ public class ExportDataDialog extends JDialog {
 			} else if (c == 9) {
 				b.append((char)92).append('t');
 			} else if (c < 32) {
-				b.append(String.format("%cn%04x", (char)92, (int)c));
+				// control character: emit a hex escape. The previous form used
+				// "%cn%04x", which produced a literal "\n000d" for CR instead of
+				// an escape, corrupting the exported literal.
+				b.append(String.format("%cx%02x", (char) 92, (int) c));
 			} else {
 				b.append(c);
 			}

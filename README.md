@@ -45,8 +45,16 @@ classpath, no `Xuggle/` folder, no extra downloads.
 | **Plots not shown for a tracked mass** | `TFrame.initialize()` forced the main split divider to a collapsed `1.0` sentinel, hiding the plot/table pane. It now opens by default (`TFrame.showRightViewsOnStartup`). |
 | **Frame slider confined to a small area** | The player cached the widest layout it had ever seen as its preferred width, so it was laid out ~1630 px wide inside a 930 px bar and the slider was clipped. The LAF also sized the slider from its own preferred width. New `PlayerBar` sizes the player to the bar and gives the slider all the leftover width. |
 | **Cramped startup window** | The window was capped at `min(screenW*0.9, 1024 + extra*800)`, collapsing to 1024×768 on any modern display. It now uses ~90 % of the available screen at 4:3. |
+| **Auto-tracker NPE on a failed match** | `FrameData.matchWidthAndHeight` started as `null`, but `markCurrentFrame`, `getStatusCode` and the info pane all dereference it. A fresh frame that had not been searched threw `NullPointerException` (upstream has the same flaw). The field is now always a valid array, `clear()` keeps it non-null, and the two callers additionally null-guard. |
+| **Degenerate template threw out of the matcher** | `FrameData.setTemplate` called `createMagnifiedImage` on a null/zero-size template image (empty mask, or a template larger than the frame), so the guard the caller had for a missing template was unreachable. `setTemplate` now returns early and lets the caller's guard work. |
+| **Python export corrupted control characters** | `pyQuote` used `String.format("%cn%04x", ...)`, which turned a carriage return into a literal `\n000d` instead of an escape. Now emits a correct `\xNN`. |
+| **Python export NPE on a deleted track** | The track selection is a `BitSet` of IDs, not pruned when a track is deleted while the dialog is open, so `TTrack.getTrack(k)` could return `null` and the export dereferenced it. Nulls are now skipped. |
+| **Theme menu offered unusable entries** | FlatLaf themes were listed unconditionally even when the classes were absent (e.g. an IDE classpath without the FlatLaf jar), so choosing one silently did nothing. Unavailable themes are now filtered out. |
+| **Theme lost its tuning after a restart** | `applyModernLookAndFeel` restored a saved theme without applying the FlatLaf cosmetic tweaks that a runtime switch applies, so the same theme looked different after a restart. Now applied. |
+| **Failed theme switch recorded as success** | `setTheme` ignored the `false` returned by `OSPRuntime.setLookAndFeel` (which rolls back on failure) and still saved the choice. It now reports failure instead. |
+| **Fit registration could report false success** | `TrackerFits.register()` set its `registered` flag *before* adding the fits and swallowed failures silently, so a partial failure left the fits missing while claiming success. The flag is now set last, the method is synchronized (it runs from both the startup thread and the EDT and mutates a shared static list), and failures are logged. |
 | **Export hardening** | Try-with-resources on writes, failures surfaced to the user instead of only the console, success verified by existence *and* non-zero length. |
-| **Auto-tracking edge cases** | Null-template and null-match guards in `AutoTracker.findMatchTarget`. |
+
 
 ### New features
 
@@ -126,15 +134,49 @@ tracker/                 modified sources
 
 ## Verification performed on this build
 
+Verified on **Windows 11, JDK 21** (the only platform available while building):
+
 - Compiles clean, 0 errors, ~1058 classes.
 - Launches with no classpath and no `TRACKER_HOME`/`XUGGLE_HOME`, decodes video.
 - Launches under a non-English locale (`-Duser.language=de`) without error.
-- Theme switching exercised on a live window: all five themes install and the
+- Theme switching exercised on a live window: every theme installs and the
   window survives each switch; the frame slider stays full-width (695 px).
+- Drag fits confirmed present in `DatasetCurveFitter.defaultFits` at runtime
+  (11 fits total, including both drag models).
 - Packaged app image runs self-contained via `Tracker.exe` with its bundled JRE.
-- Tracked positions cross-checked against an independent re-detection
+- Untracked positions cross-checked against an independent re-detection
   (median disagreement 1.0 px) and against a ground-truth simulation, which
   recovers a known `v_t` to within 1 %.
+
+### macOS
+
+**Not run on macOS.** No Mac was available, so macOS support here rests on code
+inspection rather than a live test. What was done:
+
+- Every platform branch the new code touches was reviewed, and nothing
+  Windows-specific was added: no hard-coded drive letters or backslashes, no
+  `os.name` checks, no Windows-only APIs in the new code.
+- The default-look-&-feel change on macOS was checked for equivalence with
+  upstream behaviour.
+- `make_installer.sh` builds a `.dmg` (and generates an `.icns` from the bundled
+  PNG). It has been written but **not executed**, because jpackage can only
+  build for its host OS.
+
+If you are on a Mac, please run `./make_installer.sh` and report anything that
+misbehaves.
+
+### Known limitations
+
+- The Java sources here are an **overlay**: `tracker/src` holds only the classes
+  this project patches, and the rest comes from the base jar. This is not a
+  complete standalone fork of the Tracker codebase.
+- `java -jar tracker.jar relative\path\video.mp4` mishandles a relative path
+  (it collapses to `file:/video.mp4`). This is pre-existing upstream behaviour,
+  reproduced identically on the unmodified stock jar, and was left alone;
+  absolute paths work.
+- The Windows build has no `.msi`, only the portable app-image ZIP, because WiX
+  is not installed on the build machine. `make_installer.py` emits an `.msi`
+  automatically when WiX is present.
 
 ---
 

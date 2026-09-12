@@ -521,6 +521,11 @@ public class AutoTracker implements Interactive, Trackable, PropertyChangeListen
 		if (keyFrameData != null && !track.isStepComplete(n)) {
 			TPoint p = findMatchTarget(lookahead);
 			double[] peakWidthAndHeight = frameData.getMatchWidthAndHeight();
+			if (peakWidthAndHeight == null) {
+				// defensive: the field is kept non-null, but never dereference a
+				// missing match result
+				peakWidthAndHeight = new double[] { 0, 0 };
+			}
 			// Temporal-consistency (outlier) gate: when enabled, reject a match
 			// that jumps an implausible distance from the previous marked point
 			// (usually an occlusion or a wrong template match). Default OFF.
@@ -1966,6 +1971,9 @@ public class AutoTracker implements Interactive, Trackable, PropertyChangeListen
 		if (frameData.isKeyFrameData())
 			return STATUS_KEY_FRAME; // key frame
 		double[] widthAndHeight = frameData.getMatchWidthAndHeight();
+		if (widthAndHeight == null) {
+			widthAndHeight = new double[] { 0, 0 };
+		}
 		if (frameData.isMarked()) { // frame is marked (includes always-marked tracks like axes, calibration points,
 			// etc)
 			if (frameData.isAutoMarked()) { // automarked
@@ -2331,7 +2339,12 @@ public class AutoTracker implements Interactive, Trackable, PropertyChangeListen
 		private int index, frameNum, matcherHashCode;
 		private int[] templateAlphas = new int[2];
 		private double[] targetOffset = { 0, 0 };
-		private double[] matchWidthAndHeight;
+		// Never null: a null here used to mean "no match attempted yet", but
+		// several callers (markCurrentFrame, getStatusCode, the info pane)
+		// dereference the value without a null check, so a fresh FrameData threw
+		// NullPointerException. A zero score simply reads as "no match", which is
+		// the correct meaning for a frame that has not been searched.
+		private double[] matchWidthAndHeight = { 0, 0 };
 		private TPoint[] matchPoints;
 		private TPoint[] searchPoints;
 		TPoint trackPoint;
@@ -2406,6 +2419,15 @@ public class AutoTracker implements Interactive, Trackable, PropertyChangeListen
 			matcherHashCode = matcher.hashCode();
 			// refresh icons
 			setMatchIcon(null);
+			// A matcher whose template is missing or degenerate (for example an
+			// empty mask, or a template larger than the frame) has no usable
+			// template image. createMagnifiedImage dereferences it, so bail out
+			// here rather than throwing out of the caller's template setup.
+			if (templateImage == null
+					|| templateImage.getWidth() <= 0 || templateImage.getHeight() <= 0) {
+				setTemplateIcon(null);
+				return;
+			}
 			BufferedImage img = createMagnifiedImage(templateImage);
 			setTemplateIcon(new ImageIcon(img));
 //			setEvolvedIcon(null);
@@ -2586,7 +2608,9 @@ public class AutoTracker implements Interactive, Trackable, PropertyChangeListen
 
 		void clear() {
 			matchPoints = null;
-			matchWidthAndHeight = null;
+			// keep the "never null" invariant (see the field declaration) so the
+			// callers that dereference this array cannot throw
+			matchWidthAndHeight = new double[] { 0, 0 };
 			matchIcon = null;
 			autoMarkLoc = null;
 			searched = false;

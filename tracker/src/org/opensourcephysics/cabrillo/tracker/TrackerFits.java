@@ -27,6 +27,7 @@ package org.opensourcephysics.cabrillo.tracker;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 
+import org.opensourcephysics.controls.OSPLog;
 import org.opensourcephysics.tools.DatasetCurveFitter;
 import org.opensourcephysics.tools.KnownFunction;
 import org.opensourcephysics.tools.UserFunction;
@@ -86,10 +87,15 @@ public final class TrackerFits {
 	}
 
 	/**
-	 * Adds the Tracker fit functions to the curve fitter's built-in list. Safe to
-	 * call repeatedly and from any thread; the fits are added only once.
+	 * Adds the Tracker fit functions to the curve fitter's built-in list.
+	 * <p>
+	 * This is called both from the startup thread and from the event dispatch
+	 * thread and it mutates the shared static {@code DatasetCurveFitter.defaultFits}
+	 * list, so it is synchronized. The registered flag is set only after both fits
+	 * are in: setting it first would leave the fits permanently missing while
+	 * {@link #isRegistered()} still reported success.
 	 */
-	public static void register() {
+	public static synchronized void register() {
 		if (registered) {
 			return;
 		}
@@ -98,13 +104,15 @@ public final class TrackerFits {
 			if (fits == null) {
 				return;
 			}
-			registered = true;
 			addFit(fits, TANH_NAME, "a + b*tanh(c*" + VAR + " + d)", //$NON-NLS-1$ //$NON-NLS-2$
 					"Terminal velocity (quadratic drag): a + b*tanh(c*x + d)"); //$NON-NLS-1$
 			addFit(fits, EXP_NAME, "a + b*(1 - exp(-c*" + VAR + " + d))", //$NON-NLS-1$ //$NON-NLS-2$
 					"Terminal velocity (linear drag): a + b*(1 - exp(-c*x + d))"); //$NON-NLS-1$
+			registered = true;
 		} catch (Throwable t) {
-			// the extra fits are a convenience: never let them break startup
+			// the extra fits are a convenience and must never break startup, but the
+			// reason is still worth recording
+			OSPLog.warning("unable to register the drag fit functions: " + t); //$NON-NLS-1$
 		}
 	}
 
